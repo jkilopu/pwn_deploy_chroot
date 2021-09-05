@@ -11,30 +11,30 @@ import sys
 import uuid
 import json
 
-def getFileList():
-    filelist = []
-    for filename in os.listdir(PWN_BIN_PATH):
-        if not filename.endswith(".so"):
-            if not os.path.isfile(PWN_BIN_PATH + "/" + "libc_" + filename + ".so") or \
-                    not os.path.isfile(PWN_BIN_PATH + "/" + "ld_" + filename + ".so"):
-                sys.stderr.write("Error: Can't find libc or ld for " + filename + "!\n")
-                sys.exit(1)
-            filelist.append(filename)
-    filelist.sort()
-    return filelist
+def getChallList():
+    challlist = []
+    for challname in os.listdir(PWN_BIN_PATH):
+        if not os.path.isfile(PWN_BIN_PATH + "/" + challname + "/" + challname) or\
+                not os.path.isfile(PWN_BIN_PATH + "/" + challname + "/" + "libc_" + challname + ".so") or \
+                not os.path.isfile(PWN_BIN_PATH + "/" + challname + "/" + "ld_" + challname + ".so"):
+            sys.stderr.write("Error: Can't find binary, libc or ld for " + challname + "!\n")
+            sys.exit(1)
+        challlist.append(challname)
+    challlist.sort()
+    return challlist
 
-def isExistBeforeGetFlagAndPort(filename, contentBefore):
-    filename_tmp = ""
+def isExistBeforeGetFlagAndPort(challname, contentBefore):
+    challname_tmp = ""
     tmp_dict = ""
     ret = False
     for line in contentBefore:
         tmp_dict = json.loads(line)
-        filename_tmp = tmp_dict["filename"]
-        if filename == filename_tmp:
+        challname_tmp = tmp_dict["challname"]
+        if challname == challname_tmp:
             ret = [tmp_dict["flag"], tmp_dict["port"]]
     return ret
 
-def generateFlags(filelist):
+def generateFlags(challlist):
     tmp_flag = ""
     contentBefore = []
     if not os.path.exists(FLAG_BAK_FILENAME):
@@ -47,15 +47,15 @@ def generateFlags(filelist):
                 break
             contentBefore.append(line)
     # bin's num != flags.txt's linenum, empty the flags.txt
-    if len(filelist) != len(contentBefore):
+    if len(challlist) != len(contentBefore):
         os.popen("echo '' > " + FLAG_BAK_FILENAME)
         contentBefore = []
     port = PORT_LISTEN_START_FROM + len(contentBefore)
     flags = []
     with open(FLAG_BAK_FILENAME, 'w') as f:
-        for filename in filelist:
+        for challname in challlist:
             flag_dict = {}
-            ret = isExistBeforeGetFlagAndPort(filename, contentBefore)
+            ret = isExistBeforeGetFlagAndPort(challname, contentBefore)
             if ret == False:
                 tmp_flag = "flag{" + str(uuid.uuid4()) + "}"
                 flag_dict["port"] = port
@@ -64,7 +64,7 @@ def generateFlags(filelist):
                 tmp_flag = ret[0]
                 flag_dict["port"] = ret[1]
 
-            flag_dict["filename"] = filename
+            flag_dict["challname"] = challname
             flag_dict["flag"] = tmp_flag
             flag_json = json.dumps(flag_dict)
             print flag_json
@@ -72,7 +72,7 @@ def generateFlags(filelist):
             flags.append(tmp_flag)
     return flags
 
-def generateXinetd(filelist):
+def generateXinetd(challlist):
     contentBefore = []
     with open(FLAG_BAK_FILENAME, 'r') as f:
         while 1:
@@ -82,48 +82,48 @@ def generateXinetd(filelist):
             contentBefore.append(line)
     conf = ""
     uid = 1000
-    for filename in filelist:
-        port = isExistBeforeGetFlagAndPort(filename, contentBefore)[1]
-        conf += XINETD % (port, str(uid) + ":" + str(uid), filename, filename)
+    for challname in challlist:
+        port = isExistBeforeGetFlagAndPort(challname, contentBefore)[1]
+        conf += XINETD % (port, str(uid) + ":" + str(uid), challname, challname)
         uid = uid + 1
     with open(XINETD_CONF_FILENAME, 'w') as f:
             f.write(conf)
 
-def generateDockerfile(filelist, flags):
+def generateDockerfile(challlist, flags):
     conf = ""
     # useradd and put flag
     runcmd = "RUN "
     
-    for filename in filelist:
-        runcmd += "useradd -m " + filename + " && "
+    for challname in challlist:
+        runcmd += "useradd -m " + challname + " && "
    
-    for x in xrange(0, len(filelist)):
-        if x == len(filelist) - 1:
-            runcmd += "echo '" + flags[x] + "' > /home/" + filelist[x] + "/flag.txt" 
+    for x in xrange(0, len(challlist)):
+        if x == len(challlist) - 1:
+            runcmd += "echo '" + flags[x] + "' > /home/" + challlist[x] + "/flag.txt" 
         else:
-            runcmd += "echo '" + flags[x] + "' > /home/" + filelist[x] + "/flag.txt" + " && "
+            runcmd += "echo '" + flags[x] + "' > /home/" + challlist[x] + "/flag.txt" + " && "
     # print runcmd 
 
-    # copy all files which name contains `filename`
+    # copy all files which name contains `challname`
     copybin = ""
-    for filename in filelist:
-        copybin += "COPY " + PWN_BIN_PATH + "/" + "*" + filename + "*" + " /home/" + filename + "/" + "\n"
+    for challname in challlist:
+        copybin += "COPY " + PWN_BIN_PATH + "/" + challname + "/*" + " /home/" + challname + "/" + "\n"
         if REPLACE_BINSH:
-            copybin += "COPY ./catflag" + " /home/" + filename + "/bin/sh\n"
+            copybin += "COPY ./catflag" + " /home/" + challname + "/bin/sh\n"
         else:
-            copybin += "COPY ./catflag" + " /home/" + filename + "/bin/sh\n"
+            copybin += "COPY ./catflag" + " /home/" + challname + "/bin/sh\n"
 
     # print copybin
 
     # chown & chmod
     chown_chmod = "RUN "
-    for x in xrange(0, len(filelist)):
-        chown_chmod += "chown -R root:" + filelist[x] + " /home/" + filelist[x] + " && "
-        chown_chmod += "chmod -R 750 /home/" + filelist[x] + " && "
-        if x == len(filelist) - 1:
-            chown_chmod += "chmod 740 /home/" + filelist[x] + "/flag.txt"
+    for x in xrange(0, len(challlist)):
+        chown_chmod += "chown -R root:" + challlist[x] + " /home/" + challlist[x] + " && "
+        chown_chmod += "chmod -R 750 /home/" + challlist[x] + " && "
+        if x == len(challlist) - 1:
+            chown_chmod += "chmod 740 /home/" + challlist[x] + "/flag.txt"
         else:
-            chown_chmod += "chmod 740 /home/" + filelist[x] + "/flag.txt" + " && "
+            chown_chmod += "chmod 740 /home/" + challlist[x] + "/flag.txt" + " && "
     # print chown_chmod
 
     # copy lib,/bin 
@@ -133,17 +133,17 @@ def generateDockerfile(filelist, flags):
         # ness_bin = '''mkdir /home/%s/bin && cp /bin/sh /home/%s/bin && cp /bin/ls /home/%s/bin && cp /bin/cat /home/%s/bin'''
         ness_bin = '''&& cp /bin/sh /home/%s/bin && cp /bin/ls /home/%s/bin && cp /bin/cat /home/%s/bin'''
     copy_lib_bin_dev = "RUN "
-    for x in xrange(0, len(filelist)):
-        copy_lib_bin_dev += "cp -R /lib* /home/" + filelist[x]  + " && "
-        copy_lib_bin_dev += "cp -R /usr/lib* /home/" + filelist[x]  + " && "
-        copy_lib_bin_dev += dev % (filelist[x], filelist[x], filelist[x], filelist[x], filelist[x], filelist[x])
-        if x == len(filelist) - 1:
+    for x in xrange(0, len(challlist)):
+        copy_lib_bin_dev += "cp -R /lib* /home/" + challlist[x]  + " && "
+        copy_lib_bin_dev += "cp -R /usr/lib* /home/" + challlist[x]  + " && "
+        copy_lib_bin_dev += dev % (challlist[x], challlist[x], challlist[x], challlist[x], challlist[x], challlist[x])
+        if x == len(challlist) - 1:
             if not REPLACE_BINSH:
-                copy_lib_bin_dev += ness_bin % (filelist[x], filelist[x], filelist[x])
+                copy_lib_bin_dev += ness_bin % (challlist[x], challlist[x], challlist[x])
             pass                
         else: 
             if not REPLACE_BINSH:   
-                copy_lib_bin_dev += ness_bin % (filelist[x], filelist[x], filelist[x]) + " && "
+                copy_lib_bin_dev += ness_bin % (challlist[x], challlist[x], challlist[x]) + " && "
             else:
                 copy_lib_bin_dev += " && "
 
@@ -167,22 +167,22 @@ def generateDockerCompose(length):
     with open("docker-compose.yml", 'w') as f:
         f.write(conf)
 
-# def generateBinPort(filelist):
+# def generateBinPort(challlist):
 #     port = PORT_LISTEN_START_FROM
 #     tmp = ""
-#     for filename in filelist:
-#         tmp += filename  + "'s port: " + str(port) + "\n"
+#     for challname in challlist:
+#         tmp += challname  + "'s port: " + str(port) + "\n"
 #         port = port + 1
 #     print tmp
 #     with open(PORT_INFO_FILENAME, 'w') as f:
 #         f.write(tmp)
     
-filelist = getFileList()
-flags = generateFlags(filelist)
-# generateBinPort(filelist)
-generateXinetd(filelist)
-generateDockerfile(filelist, flags)
-generateDockerCompose(len(filelist))
+challlist = getChallList()
+flags = generateFlags(challlist)
+# generateBinPort(challlist)
+generateXinetd(challlist)
+generateDockerfile(challlist, flags)
+generateDockerCompose(len(challlist))
 
 
 
