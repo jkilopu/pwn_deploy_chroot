@@ -7,13 +7,19 @@
 
 from config import *
 import os
+import sys
 import uuid
 import json
 
 def getFileList():
     filelist = []
     for filename in os.listdir(PWN_BIN_PATH):
-        filelist.append(filename)
+        if not filename.endswith(".so"):
+            if not os.path.isfile(PWN_BIN_PATH + "/" + "libc_" + filename + ".so") or \
+                    not os.path.isfile(PWN_BIN_PATH + "/" + "ld_" + filename + ".so"):
+                sys.stderr.write("Error: Can't find libc or ld for " + filename + "!\n")
+                sys.exit(1)
+            filelist.append(filename)
     filelist.sort()
     return filelist
 
@@ -98,10 +104,10 @@ def generateDockerfile(filelist, flags):
             runcmd += "echo '" + flags[x] + "' > /home/" + filelist[x] + "/flag.txt" + " && "
     # print runcmd 
 
-    # copy bin
+    # copy all files which name contains `filename`
     copybin = ""
     for filename in filelist:
-        copybin += "COPY " + PWN_BIN_PATH + "/" + filename  + " /home/" + filename + "/" + filename + "\n"
+        copybin += "COPY " + PWN_BIN_PATH + "/" + "*" + filename + "*" + " /home/" + filename + "/" + "\n"
         if REPLACE_BINSH:
             copybin += "COPY ./catflag" + " /home/" + filename + "/bin/sh\n"
         else:
